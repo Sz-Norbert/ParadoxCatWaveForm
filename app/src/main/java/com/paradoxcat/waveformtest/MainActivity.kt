@@ -1,113 +1,174 @@
 package com.paradoxcat.waveformtest
 
-import android.content.res.AssetFileDescriptor
-import android.media.AudioFormat
-import android.media.MediaExtractor
-import android.media.MediaFormat
-import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Bundle
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
+import android.view.View
+import android.widget.Button
+import android.widget.ProgressBar
+import android.widget.SeekBar
+import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import com.paradoxcat.waveformtest.waveviewer.databinding.ActivityMainBinding
-import java.io.IOException
-import java.nio.ByteBuffer
+import androidx.core.content.ContextCompat
+import com.airbnb.lottie.LottieAnimationView
+import com.paradoxcat.waveformtest.view.WaveformSlideBar
+import com.paradoxcat.waveformtest.viewmodels.uiStates.WaveformUiState
+import com.paradoxcat.waveformtest.viewmodels.uiStates.WaveformViewModel
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+    
+    private val viewModel: WaveformViewModel by viewModels()
 
-    companion object {
-        const val TAG = "MainActivity"
+    private lateinit var waveformView: WaveformSlideBar
+    private lateinit var playButton: Button
+    private lateinit var loadButton: Button
+    private lateinit var progressBar: ProgressBar
+    private lateinit var statusText: TextView
+    private lateinit var debugText: TextView
+    private lateinit var timelineSeekBar: SeekBar
+    private lateinit var currentTimeText: TextView
+    private lateinit var totalTimeText: TextView
+    private lateinit var loadingAnimation: LottieAnimationView
 
-        // A real gravitational wave from https://www.gw-openscience.org/audio/
-        // It was a GW150914 binary black hole merger event that LIGO has detected,
-        // waveform template derived from GR, whitened, frequency shifted +400 Hz
-//        const val EXAMPLE_AUDIO_FILE_NAME = "gravitational_wave_mono_44100Hz_16bit.wav" // takes forever, but loads eventually
-        const val EXAMPLE_AUDIO_FILE_NAME = "whistle_mono_44100Hz_16bit.wav" // small enough to load
-//        const val EXAMPLE_AUDIO_FILE_NAME = "music_mono_44100Hz_16bit.wav" // too large to load currently!
-
-        const val EXPECTED_NUM_CHANNELS = 1
-        const val EXPECTED_SAMPLE_RATE = 44100
-        const val EXPECTED_AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.loadAudioFile(it) }
     }
 
-    private lateinit var _binding: ActivityMainBinding
-    private lateinit var mediaPlayer: MediaPlayer
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+   override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        _binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(_binding.root)
+        setContentView(R.layout.activity_main)
 
-        try {
-            val assetFileDescriptor = assets.openFd(EXAMPLE_AUDIO_FILE_NAME)
+        initViews()
+        observeViewModel()
+        setupListeners()
+    }
 
-            // initialize media player
-            mediaPlayer = MediaPlayer()
-            mediaPlayer.setDataSource(assetFileDescriptor)
-            mediaPlayer.prepareAsync()
-            _binding.playButton.setOnClickListener {
-                try {
-                    if (mediaPlayer.isPlaying) mediaPlayer.pause() else mediaPlayer.start()
-                } catch (e: IllegalStateException) {
-                    Log.e(TAG, "Could not start playing", e)
+
+    private fun initViews() {
+        waveformView = findViewById(R.id.waveformView)
+        playButton = findViewById(R.id.playButton)
+        loadButton = findViewById(R.id.loadButton)
+        progressBar = findViewById(R.id.progressBar)
+        statusText = findViewById(R.id.statusText)
+        debugText = findViewById(R.id.debugText)
+        timelineSeekBar = findViewById(R.id.timelineSeekBar)
+        currentTimeText = findViewById(R.id.currentTimeText)
+        totalTimeText = findViewById(R.id.totalTimeText)
+        loadingAnimation = findViewById(R.id.loadingAnimation)
+    }
+
+
+    private fun observeViewModel() {
+        viewModel.uiState.observe(this) { state ->
+            updateUI(state)
+        }
+
+        viewModel.debugInfo.observe(this) { info ->
+            debugText.text = info
+        }
+    }
+
+    private fun setupListeners() {
+        loadButton.setOnClickListener {
+            filePickerLauncher.launch("audio/*")
+        }
+
+        playButton.setOnClickListener {
+            viewModel.togglePlayPause()
+        }
+
+        timelineSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val percentage = progress / 100f
+                    viewModel.seekToPercentage(percentage)
                 }
             }
 
-            // allocate a buffer
-            var fileSize = assetFileDescriptor.length // in bytes
-            if (fileSize == AssetFileDescriptor.UNKNOWN_LENGTH) {
-                fileSize = 30 * 1024 * 1024 // 30 MB would accommodate ~6 minutes of 44.1 KHz, 16-bit uncompressed audio
-            } else if (fileSize > Int.MAX_VALUE) {
-                fileSize = Int.MAX_VALUE.toLong()
-            }
-            val rawAudioBuffer = ByteBuffer.allocate(fileSize.toInt())
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
 
-            // extract raw audio samples from file into the buffer
-            val mediaExtractor = MediaExtractor()
-            mediaExtractor.setDataSource(assetFileDescriptor)
-            assetFileDescriptor.close()
+        waveformView.setOnTouchListener { view, event ->
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                val percentage = event.x / view.width
+                viewModel.seekToPercentage(percentage)
+                true
+            } else false
+        }
+    }
 
-            // Assuming single track, PCM, 1-channel, and 16-bit format in the buffer.
-            // Otherwise we would have to first decode it e.g. using MediaCodec
-            // Sanity checks:
-            if (mediaExtractor.trackCount < 1) {
-                Log.e(TAG, "No media tracks found, aborting initialization")
-                return
-            }
-            val mime = mediaExtractor.getTrackFormat(0)
-            if (mime.containsKey(MediaFormat.KEY_PCM_ENCODING) &&
-                mime.getInteger(MediaFormat.KEY_PCM_ENCODING) != EXPECTED_AUDIO_FORMAT
-            ) {
-                Log.e(TAG, "Expected AudioFormat $EXPECTED_AUDIO_FORMAT, got AudioFormat ${mime.getInteger(MediaFormat.KEY_PCM_ENCODING)}")
-                return
-            }
-            if (mime.containsKey(MediaFormat.KEY_CHANNEL_COUNT) &&
-                mime.getInteger(MediaFormat.KEY_CHANNEL_COUNT) != EXPECTED_NUM_CHANNELS
-            ) {
-                Log.e(TAG, "Expected $EXPECTED_NUM_CHANNELS channels, got ${mime.getInteger(MediaFormat.KEY_CHANNEL_COUNT)}")
-                return
-            }
-            if (mime.containsKey(MediaFormat.KEY_SAMPLE_RATE) &&
-                mime.getInteger(MediaFormat.KEY_SAMPLE_RATE) != EXPECTED_SAMPLE_RATE
-            ) {
-                Log.e(TAG, "Expected $EXPECTED_SAMPLE_RATE sample rate, got ${mime.getInteger(MediaFormat.KEY_SAMPLE_RATE)}")
-                return
+
+    private fun updateUI(state: WaveformUiState) {
+        if (state.isLoading) {
+            loadingAnimation.visibility = View.VISIBLE
+            loadingAnimation.playAnimation()
+            progressBar.visibility = View.GONE
+        } else {
+            loadingAnimation.visibility = View.GONE
+            loadingAnimation.cancelAnimation()
+            progressBar.visibility = View.GONE
+        }
+
+        loadButton.isEnabled = !state.isLoading
+        playButton.isEnabled = state.hasData && !state.isLoading
+
+        playButton.text = if (state.isPlaying) getString(R.string.pause) else getString(R.string.play)
+
+        if (state.hasData) {
+            timelineSeekBar.isEnabled = true
+            timelineSeekBar.progress = (state.progressPercentage * 100).toInt()
+            currentTimeText.text = state.formatCurrentTime()
+            totalTimeText.text = state.formatTotalTime()
+        } else {
+            timelineSeekBar.isEnabled = false
+            timelineSeekBar.progress = 0
+            currentTimeText.text = getString(R.string.time_zero)
+            totalTimeText.text = getString(R.string.time_zero)
+        }
+
+        when {
+            state.isLoading -> {
+                statusText.text = getString(R.string.loading_message)
+                statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_blue_dark))
             }
 
-            // dump raw data into a buffer
-            mediaExtractor.selectTrack(0)
-            var bufferSize = 0
-            var samplesRead = mediaExtractor.readSampleData(rawAudioBuffer, 0)
-            while (samplesRead > 0) {
-                bufferSize += samplesRead
-                mediaExtractor.advance()
-                samplesRead = mediaExtractor.readSampleData(rawAudioBuffer, bufferSize)
-            }
-            mediaExtractor.release()
+            state.hasError -> {
+                statusText.text = state.errorMessage
+                statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
 
-            // draw it
-            _binding.waveformView.setData(rawAudioBuffer)
-        } catch (e: IOException) {
-            Log.e(TAG, "Exception while reading audio file $EXAMPLE_AUDIO_FILE_NAME", e)
+               Handler(Looper.getMainLooper()).postDelayed({
+                    viewModel.clearError()
+                }, 5000)
+            }
+
+            state.hasData -> {
+                statusText.text = getString(R.string.file_uploaded, state.fileName)
+                statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
+
+                state.audioData?.let { audioData ->
+                    waveformView.setData(audioData)
+                }
+            }
+
+            else -> {
+                statusText.text = getString(R.string.upload_audio_prompt)
+                statusText.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
+            }
         }
     }
 }
+
+
+
+
+
