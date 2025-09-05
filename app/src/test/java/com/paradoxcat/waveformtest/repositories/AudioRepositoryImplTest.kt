@@ -43,11 +43,12 @@ class AudioRepositoryImplTest {
         every { mockCursor.close() } just Runs
     }
 
+
     @Test
     fun `loadAudioFile given valid stream and filename returns success`() = runTest {
-        val audioBytes = ByteArray(1024)
+        val audioContent = ByteArray(1024)
         val fileName = "test_audio.wav"
-        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(audioBytes)
+        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(audioContent)
         mockCursorWithFilename(fileName)
 
         val result = audioRepository.loadAudioFile(mockUri)
@@ -55,7 +56,7 @@ class AudioRepositoryImplTest {
         assertTrue(result.isSuccess)
         val (audioData, resultFileName) = result.getOrThrow()
         assertEquals(fileName, resultFileName)
-        assertEquals(audioBytes.size, audioData.remaining())
+        assertEquals(audioContent.size, audioData.remaining())
         coVerifyOrder {
             mockContentResolver.openInputStream(mockUri)
             mockContentResolver.query(mockUri, null, null, null, null)
@@ -63,12 +64,10 @@ class AudioRepositoryImplTest {
     }
 
     @Test
-    fun `loadAudioFile given wav file skips 44 byte header`() = runTest {
-        val header = ByteArray(44).apply { "RIFF".toByteArray().copyInto(this) }
+    fun `loadAudioFile reads entire file content`() = runTest {
         val audioContent = ByteArray(1024)
-        val fileBytes = header + audioContent
         val fileName = "test_audio.wav"
-        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(fileBytes)
+        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(audioContent)
         mockCursorWithFilename(fileName)
 
         val result = audioRepository.loadAudioFile(mockUri)
@@ -85,7 +84,7 @@ class AudioRepositoryImplTest {
         val result = audioRepository.loadAudioFile(mockUri)
 
         assertTrue(result.isFailure)
-        assertEquals("cannot open the file", result.exceptionOrNull()?.message)
+        assertEquals("Cannot open the file", result.exceptionOrNull()?.message)
         verify(exactly = 1) { mockContentResolver.openInputStream(mockUri) }
         verify(exactly = 0) { mockContentResolver.query(any(), any(), any(), any(), any()) }
     }
@@ -103,8 +102,8 @@ class AudioRepositoryImplTest {
 
     @Test
     fun `loadAudioFile given null cursor returns success with empty filename`() = runTest {
-        val audioBytes = ByteArray(1024)
-        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(audioBytes)
+        val audioContent = ByteArray(1024)
+        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(audioContent)
         every { mockContentResolver.query(mockUri, null, null, null, null) } returns null
 
         val result = audioRepository.loadAudioFile(mockUri)
@@ -116,8 +115,8 @@ class AudioRepositoryImplTest {
 
     @Test
     fun `loadAudioFile given cursor that cannot move to first returns empty filename`() = runTest {
-        val audioBytes = ByteArray(1024)
-        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(audioBytes)
+        val audioContent = ByteArray(1024)
+        every { mockContentResolver.openInputStream(mockUri) } returns ByteArrayInputStream(audioContent)
         every { mockContentResolver.query(mockUri, null, null, null, null) } returns mockCursor
         every { mockCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME) } returns 0
         every { mockCursor.moveToFirst() } returns false

@@ -20,25 +20,16 @@ class AudioRepositoryImpl @Inject constructor (@ApplicationContext private val c
             try {
                 val contentResolver = context.contentResolver
                 val inputStream = contentResolver.openInputStream(uri)
-                    ?: return@withContext Result.failure(Exception("cannot open the file"))
+                    ?: return@withContext Result.failure(Exception("Cannot open the file"))
 
                 val fileName = getFileName(contentResolver, uri)
 
                 val audioData = inputStream.use { stream ->
                     val bytes = stream.readBytes()
-                    val actualAudioData = if (bytes.size > 44 &&
-                        String(bytes.sliceArray(0..3)) == "RIFF"
-                    ) {
-                        bytes.sliceArray(44 until bytes.size)
-                    } else {
-                        bytes
-                    }
-                    ByteBuffer.wrap(actualAudioData)
-
+                    ByteBuffer.wrap(bytes)
                 }
 
                 Result.success(Pair(audioData, fileName))
-
 
             } catch (e: Exception) {
                 Result.failure(e)
