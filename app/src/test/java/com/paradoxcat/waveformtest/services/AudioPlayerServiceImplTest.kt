@@ -52,15 +52,15 @@ class AudioPlayerServiceImplTest {
 
     @Test
     fun `prepareAudio configures MediaPlayer and returns duration`() = runTest {
-        val duration = 120000
+        val testDuration = 120000
         every { anyConstructed<MediaPlayer>().setDataSource(mockContext, mockUri) } just Runs
         every { anyConstructed<MediaPlayer>().prepare() } just Runs
-        every { anyConstructed<MediaPlayer>().duration } returns duration
+        every { anyConstructed<MediaPlayer>().duration } returns testDuration
         every { anyConstructed<MediaPlayer>().release() } just Runs
 
         val result = audioPlayerService.prepareAudio(mockUri)
 
-        assertEquals(duration.toLong(), result)
+        assertEquals(testDuration.toLong(), result)
         verify {
             anyConstructed<MediaPlayer>().setDataSource(mockContext, mockUri)
             anyConstructed<MediaPlayer>().prepare()
@@ -114,10 +114,10 @@ class AudioPlayerServiceImplTest {
         audioPlayerService.prepareAudio(mockUri)
         every { anyConstructed<MediaPlayer>().seekTo(any<Int>()) } just Runs
 
-        val seekPosition = 5000L
-        audioPlayerService.seekTo(seekPosition)
+        val testSeekPosition = 5000L
+        audioPlayerService.seekTo(testSeekPosition)
 
-        verify { anyConstructed<MediaPlayer>().seekTo(seekPosition.toInt()) }
+        verify { anyConstructed<MediaPlayer>().seekTo(testSeekPosition.toInt()) }
     }
 
     @Test
@@ -126,12 +126,12 @@ class AudioPlayerServiceImplTest {
         every { anyConstructed<MediaPlayer>().prepare() } just Runs
         every { anyConstructed<MediaPlayer>().release() } just Runs
         audioPlayerService.prepareAudio(mockUri)
-        val currentPosition = 15000
-        every { anyConstructed<MediaPlayer>().currentPosition } returns currentPosition
+        val testCurrentPosition = 15000
+        every { anyConstructed<MediaPlayer>().currentPosition } returns testCurrentPosition
 
         val result = audioPlayerService.getCurrentPosition()
 
-        assertEquals(currentPosition.toLong(), result)
+        assertEquals(testCurrentPosition.toLong(), result)
     }
 
     @Test

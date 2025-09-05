@@ -65,10 +65,10 @@ class WaveformViewModelTest {
     fun `loadAudioFile on success updates state with data and duration`() = runTest {
         val mockUri = mockk<Uri>()
         val mockAudioData = mockk<ByteBuffer>()
-        val mockFileName = "audio.wav"
-        val mockDuration = 120000L
-        coEvery { mockAudioRepository.loadAudioFile(mockUri) } returns Result.success(Pair(mockAudioData, mockFileName))
-        coEvery { mockAudioPlayerService.prepareAudio(mockUri) } returns mockDuration
+        val fileName = "test.wav"
+        val duration = 120000L
+        coEvery { mockAudioRepository.loadAudioFile(mockUri) } returns Result.success(Pair(mockAudioData, fileName))
+        coEvery { mockAudioPlayerService.prepareAudio(mockUri) } returns duration
 
         clearMocks(mockUiStateObserver, answers = false)
         viewModel.loadAudioFile(mockUri)
@@ -81,8 +81,8 @@ class WaveformViewModelTest {
         val finalState = states.last()
         assertFalse(finalState.isLoading)
         assertTrue(finalState.hasData)
-        assertEquals(mockFileName, finalState.fileName)
-        assertEquals(mockDuration, finalState.totalDuration)
+        assertEquals(fileName, finalState.fileName)
+        assertEquals(duration, finalState.totalDuration)
         assertEquals(mockAudioData, finalState.audioData)
 
         coVerifyOrder {
@@ -193,7 +193,9 @@ class WaveformViewModelTest {
 
     private suspend fun loadAudioSuccessfully(duration: Long = 120000L, viewModel: WaveformViewModel = this.viewModel) {
         val mockUri = mockk<Uri>()
-        coEvery { mockAudioRepository.loadAudioFile(mockUri) } returns Result.success(Pair(mockk(), "file.wav"))
+        val mockAudioData = mockk<ByteBuffer>()
+        val fileName = "test.wav"
+        coEvery { mockAudioRepository.loadAudioFile(mockUri) } returns Result.success(Pair(mockAudioData, fileName))
         coEvery { mockAudioPlayerService.prepareAudio(mockUri) } returns duration
         viewModel.loadAudioFile(mockUri)
         testDispatcher.scheduler.advanceUntilIdle()
